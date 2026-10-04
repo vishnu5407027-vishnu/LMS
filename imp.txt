@@ -1,0 +1,40 @@
+Key Accomplishments
+JWT Authentication: Secure login and registration using SimpleJWT.
+Role-Based Access: Custom User model with roles for Admin, Instructor, and Student.
+Course Management: API endpoints for creating and listing courses.
+Assignment System: Students can view and submit assignments.
+Modern UI: A sleek, dark-themed dashboard built with vanilla CSS.
+Screenshots & Demos
+Login Page
+A clean and modern login interface. Login Page
+
+Course Listing
+Interactive course cards with a glassmorphism design. Courses Page
+
+How to Run
+Activate Virtual Environment:
+.\venv\Scripts\activate
+Start the Server:
+python manage.py runserver
+Access the App: Open http://127.0.0.1:8000 in your browser.
+Tech Stack
+Backend: Django, DRF, SimpleJWT
+Frontend: HTML5, Vanilla CSS, JavaScript (Fetch API)
+Database: SQLite3
+
+
+
+instructor_demo / demo1234
+student_demo / demo1234
+.\venv\Scripts\python manage.py createsuperuser
+
+
+.\venv\Scripts\python manage.py makemigrations
+.\venv\Scripts\python manage.py showmigrations courses
+
+
+
+
+
+.\venv\Scripts\activate
+python manage.py runserver

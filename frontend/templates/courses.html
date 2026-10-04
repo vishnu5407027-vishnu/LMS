@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini LMS - Courses</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body style="display: block; padding-top: 80px;">
+    <nav>
+        <a href="/courses">Courses</a>
+        <a href="/assignments">Assignments</a>
+        <a href="#" onclick="logout()">Logout</a>
+    </nav>
+
+    <div style="max-width: 800px; margin: 0 auto; padding: 2rem;">
+        <div id="instructorDash" style="display: none; margin-bottom: 2rem; border-bottom: 1px solid #334155; padding-bottom: 2rem;">
+            <h2>Create New Course</h2>
+            <form id="createCourseForm" class="course-card">
+                <input type="text" id="courseTitle" placeholder="Course Title" required>
+                <textarea id="courseDesc" placeholder="Course Description" style="width: 100%; height: 100px; background: #0f172a; color: white; border-radius: 0.5rem; padding: 0.75rem; border: 1px solid #334155; margin-bottom: 1rem;"></textarea>
+                <button type="submit">Create Course</button>
+            </form>
+        </div>
+
+        <div id="submissionsDash" style="display: none; margin-top: 2rem; border-top: 1px solid #334155; padding-top: 2rem;">
+            <h2>Recent Submissions</h2>
+            <div id="submissionList"></div>
+        </div>
+
+        <h1 style="text-align: left;">Available Courses</h1>
+        <div id="courseList"></div>
+    </div>
+
+    <script>
+        // Simple JWT decoding to check role
+        function getPayload(token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function fetchCourses() {
+            const token = localStorage.getItem('access');
+            if (!token) {
+                window.location.href = '/';
+                return;
+            }
+
+            const payload = getPayload(token);
+            // In a real app, we verify role from profile.
+            // For now, we'll try to show instructor tools.
+            document.getElementById('instructorDash').style.display = 'block';
+
+            const response = await fetch('/api/courses/list/', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.status === 401) window.location.href = '/';
+
+            const courses = await response.json();
+            const list = document.getElementById('courseList');
+            list.innerHTML = courses.map(course => `
+                <div class="course-card">
+                    <h2>${course.title}</h2>
+                    <p style="color: var(--text-muted);">${course.description}</p>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button onclick="window.location.href='/assignments?course=${course.id}'">View Assignments</button>
+                        <button style="background: var(--accent);" onclick="fetchSubmissions(${course.id})">View Submissions</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function fetchSubmissions(courseId) {
+            const token = localStorage.getItem('access');
+            const response = await fetch('/api/courses/submissions/', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const submissions = await response.json();
+                const dash = document.getElementById('submissionsDash');
+                const list = document.getElementById('submissionList');
+                dash.style.display = 'block';
+                
+                // Filter submissions if necessary, though the API might be broad
+                list.innerHTML = submissions.map(s => `
+                    <div class="course-card" style="background: #111827;">
+                        <p><strong>Student ID: ${s.student}</strong> | <strong>Assignment ID: ${s.assignment}</strong></p>
+                        <p style="margin-top: 0.5rem;">${s.content}</p>
+                        <p style="font-size: 0.75rem; color: var(--text-muted);">${new Date(s.submitted_at).toLocaleString()}</p>
+                    </div>
+                `).join('');
+                
+                if (submissions.length === 0) {
+                    list.innerHTML = '<p>No submissions found.</p>';
+                }
+                
+                dash.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        document.getElementById('createCourseForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('courseTitle').value;
+            const description = document.getElementById('courseDesc').value;
+            const token = localStorage.getItem('access');
+
+            const response = await fetch('/api/courses/list/', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ title, description })
+            });
+
+            if (response.ok) {
+                alert('Course created!');
+                fetchCourses();
+            } else {
+                alert('Failed to create course. Ensure you are an Instructor.');
+            }
+        });
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/';
+        }
+
+        fetchCourses();
+    </script>
+</body>
+</html>

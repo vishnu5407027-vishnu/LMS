@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini LMS - Assignments</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body style="display: block; padding-top: 80px;">
+    <nav>
+        <a href="/courses">Courses</a>
+        <a href="/assignments">Assignments</a>
+        <a href="#" onclick="logout()">Logout</a>
+    </nav>
+
+    <div id="app" style="max-width: 800px; margin: 0 auto; padding: 2rem;">
+        <div id="roleDisplay" style="margin-bottom: 1rem; color: #94a3b8; font-size: 0.9rem;"></div>
+        <div id="message" style="display:none; padding: 1rem; margin-bottom: 1rem; border-radius: 0.5rem;"></div>
+
+        <!-- Instructor View -->
+        <div id="instructorView" style="display: none;">
+            <h2>Course Assignments</h2>
+            <p style="color: #94a3b8; margin-bottom: 1rem;">Select an assignment to view submissions.</p>
+            <div id="instAssignmentList" style="display: grid; gap: 1rem;"></div>
+
+            <div id="submissionListArea"
+                style="display: none; margin-top: 2rem; border-top: 1px solid #334155; padding-top: 1rem;">
+                <h3>Submissions for <span id="selectedAssignmentTitle"></span></h3>
+                <div id="submissionList" style="display: grid; gap: 1rem; margin-top: 1rem;"></div>
+            </div>
+        </div>
+
+        <!-- Student View -->
+        <div id="studentView" style="display: none;">
+            <h2>My Assignments</h2>
+            <div id="stdAssignmentList" style="display: grid; gap: 1rem; margin-top: 1rem;"></div>
+
+            <div id="submissionArea"
+                style="display: none; margin-top: 2rem; border-top: 1px solid #334155; padding-top: 1rem;">
+                <h3 id="submitTitle">Submit Assignment</h3>
+                <form id="submissionForm" class="course-card">
+                    <input type="hidden" id="assignmentId">
+                    <label style="display: block; margin-bottom: 0.5rem;">Your Work</label>
+                    <textarea id="content"
+                        style="width: 100%; height: 150px; background: #0f172a; color: white; border-radius: 0.5rem; padding: 0.75rem; border: 1px solid #334155; margin-bottom: 1rem;"
+                        required></textarea>
+                    <button type="submit" id="submitBtn">Submit</button>
+                    <button type="button" onclick="cancelSubmission()"
+                        style="background: transparent; border: 1px solid #334155; margin-left: 0.5rem;">Cancel</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const courseId = urlParams.get('course');
+        const token = localStorage.getItem('access');
+        let currentUser = null;
+        let currentAssignments = [];
+        let currentSubmissions = [];
+
+        if (!token) window.location.href = '/';
+
+        // Initialize
+        async function init() {
+            try {
+                // Fetch User
+                const userRes = await fetch('/api/accounts/me/', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!userRes.ok) throw new Error('Failed to fetch user');
+                currentUser = await userRes.json();
+
+                document.getElementById('roleDisplay').textContent = `Logged in as: ${currentUser.username} (${currentUser.role})`;
+
+                // Fetch Course & Assignments
+                if (courseId) {
+                    const courseRes = await fetch(`/api/courses/list/${courseId}/`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (courseRes.ok) {
+                        const course = await courseRes.json();
+                        currentAssignments = course.assignments || [];
+                    }
+                }
+
+                // Fetch Submissions
+                const subRes = await fetch('/api/courses/submissions/', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (subRes.ok) {
+                    currentSubmissions = await subRes.json();
+                }
+
+                render();
+            } catch (e) {
+                console.error(e);
+                showMessage(e.message, 'error');
+            }
+        }
+
+        function render() {
+            if (currentUser.role === 'instructor' || currentUser.role === 'admin') {
+                document.getElementById('instructorView').style.display = 'block';
+                renderInstructorView();
+            } else {
+                document.getElementById('studentView').style.display = 'block';
+                renderStudentView();
+            }
+        }
+
+        // Instructor Logic
+        function renderInstructorView() {
+            const list = document.getElementById('instAssignmentList');
+            list.innerHTML = currentAssignments.map(a => `
+                <div class="course-card" onclick="viewSubmissions(${a.id}, '${a.title}')" style="cursor: pointer;">
+                    <strong>${a.title}</strong>
+                    <p style="font-size: 0.875rem; color: #94a3b8;">${a.description}</p>
+                </div>
+            `).join('');
+        }
+
+        async function viewSubmissions(assignmentId, title) {
+            document.getElementById('selectedAssignmentTitle').textContent = title;
+            document.getElementById('submissionListArea').style.display = 'block';
+
+            // Filter locally or fetch from server? 
+            // The initial fetch gets ALL submissions for instructor which is fine for small scale, 
+            // but let's filter the valid ones for this assignment.
+            // Actually, for instructor, get_queryset returns ALL submissions.
+            const submissions = currentSubmissions.filter(s => s.assignment === assignmentId);
+
+            const list = document.getElementById('submissionList');
+            if (submissions.length === 0) {
+                list.innerHTML = '<p>No submissions yet.</p>';
+                return;
+            }
+
+            list.innerHTML = submissions.map(s => `
+                <div class="course-card" style="border-left: 4px solid ${getStatusColor(s.status)}">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <strong>Student ID: ${s.student}</strong> <!-- Ideally fetch student name -->
+                            <p style="margin-top: 0.5rem;">${s.content}</p>
+                            <p style="font-size: 0.8rem; margin-top: 0.5rem; color: #94a3b8;">Submitted: ${new Date(s.submitted_at).toLocaleString()}</p>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="display: inline-block; padding: 0.25rem 0.5rem; background: #1e293b; border-radius: 0.25rem; font-size: 0.8rem; margin-bottom: 0.5rem; color: ${getStatusColor(s.status)}">${s.status.toUpperCase()}</span>
+                            ${s.status === 'pending' ? `
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button onclick="updateStatus(${s.id}, 'approved')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #22c55e;">Approve</button>
+                                    <button onclick="updateStatus(${s.id}, 'rejected')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #ef4444;">Reject</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function updateStatus(submissionId, status) {
+            try {
+                const res = await fetch(`/api/courses/submissions/${submissionId}/`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status })
+                });
+
+                if (res.ok) {
+                    showMessage(`Submission ${status}`, 'success');
+                    // Refresh submissions
+                    const subRes = await fetch('/api/courses/submissions/', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (subRes.ok) currentSubmissions = await subRes.json();
+
+                    // Re-render
+                    const currentTitle = document.getElementById('selectedAssignmentTitle').textContent;
+                    // Find assignment ID from current selection... bit hacky, but let's just refresh the view
+                    // We need to know which assignment was selected.
+                    // Let's store selectedAssignmentId globally or just loop through assignments to find title match (inaccurate)
+                    // Better: just reload page or simpler:
+                    const sub = currentSubmissions.find(s => s.id === submissionId);
+                    if (sub) viewSubmissions(sub.assignment, currentTitle);
+                } else {
+                    throw new Error('Update failed');
+                }
+            } catch (e) {
+                showMessage(e.message, 'error');
+            }
+        }
+
+        // Student Logic
+        function renderStudentView() {
+            const list = document.getElementById('stdAssignmentList');
+            list.innerHTML = currentAssignments.map(a => {
+                const sub = currentSubmissions.find(s => s.assignment === a.id);
+                const status = sub ? sub.status : 'not submitted';
+                const statusColor = getStatusColor(status);
+
+                let actionBtn = '';
+                if (!sub) {
+                    actionBtn = `<button onclick="openSubmissionForm(${a.id}, 'Submit')" style="margin-top: 0.5rem;">Submit Assignment</button>`;
+                } else if (status === 'rejected') {
+                    actionBtn = `<button onclick="openSubmissionForm(${a.id}, 'Resubmit', ${sub.id})" style="margin-top: 0.5rem; background: #ef4444;">Resubmit</button>`;
+                }
+
+                return `
+                    <div class="course-card" style="border-left: 4px solid ${statusColor}">
+                        <div style="display: flex; justify-content: space-between;">
+                            <div>
+                                <strong>${a.title}</strong>
+                                <p style="font-size: 0.875rem; color: #94a3b8;">${a.description}</p>
+                                ${sub ? `<p style="font-size: 0.8rem; margin-top: 0.5rem;">Your answer: ${sub.content.substring(0, 50)}...</p>` : ''}
+                            </div>
+                            <div style="text-align: right; min-width: 100px;">
+                                <span style="font-size: 0.8rem; font-weight: bold; color: ${statusColor}">${status.toUpperCase()}</span>
+                                <br>
+                                ${actionBtn}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+
+
+        async function openSubmissionForm(assignmentId, type, existingSubmissionId = null) {
+            if (type === 'Resubmit' && existingSubmissionId) {
+                if (!confirm("Resubmitting will delete your previous rejected submission. Continue?")) return;
+
+                try {
+                    const res = await fetch(`/api/courses/submissions/${existingSubmissionId}/`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!res.ok) throw new Error("Failed to delete old submission");
+
+                    // Refresh data to reflect deletion
+                    await init();
+                } catch (e) {
+                    showMessage(e.message, 'error');
+                    return;
+                }
+            }
+
+            document.getElementById('submissionArea').style.display = 'block';
+            document.getElementById('submitTitle').textContent = `Submit Assignment`; // Always "Submit" now
+            document.getElementById('assignmentId').value = assignmentId;
+            document.getElementById('content').value = '';
+            document.getElementById('content').focus();
+
+            // Scroll to form
+            document.getElementById('submissionArea').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function cancelSubmission() {
+            document.getElementById('submissionArea').style.display = 'none';
+        }
+
+        document.getElementById('submissionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const assignmentId = document.getElementById('assignmentId').value;
+            const content = document.getElementById('content').value;
+
+            let url = '/api/courses/submissions/';
+            let method = 'POST';
+
+            // We always create a new submission now, as old one is deleted on "Resubmit" click.
+
+            try {
+                const res = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ assignment: parseInt(assignmentId), content })
+                });
+
+                if (res.ok) {
+                    showMessage('Submitted successfully!', 'success');
+                    // Refresh
+                    await init(); // Fetch all again to update UI
+                    document.getElementById('submissionArea').style.display = 'none';
+                } else {
+                    const data = await res.json();
+                    throw new Error(JSON.stringify(data));
+                }
+            } catch (e) {
+                showMessage(`Error: ${e.message}`, 'error');
+            }
+        });
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'approved': return '#22c55e'; // green
+                case 'rejected': return '#ef4444'; // red
+                case 'pending': return '#f59e0b'; // amber
+                default: return '#64748b'; // gray
+            }
+        }
+
+        function showMessage(msg, type) {
+            const el = document.getElementById('message');
+            el.textContent = msg;
+            el.style.display = 'block';
+            el.style.background = type === 'error' ? '#7f1d1d' : '#14532d';
+            el.style.color = '#fff';
+            setTimeout(() => el.style.display = 'none', 3000);
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/';
+        }
+
+        init();
+    </script>
+</body>
+
+</html>
